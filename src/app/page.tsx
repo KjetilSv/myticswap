@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatUnits, parseUnits } from 'viem';
 import {
   useAccount,
@@ -9,9 +9,9 @@ import {
   useChainId,
   useSwitchChain,
   useReadContract,
-  useReadContracts,
   useWriteContract,
   useWaitForTransactionReceipt,
+  usePublicClient,
 } from 'wagmi';
 
 import { BAZAAR, Side, sideLabel } from '../lib/bazaar';
@@ -31,23 +31,145 @@ function asBigint(v: unknown): bigint {
 export default function Home() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, status: connectStatus, error: connectError } = useConnect();
+  const [connectNote, setConnectNote] = useState<string>('');
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
 
   const bazaarAddress = addrForChain(chainId);
+  const publicClient = usePublicClient();
 
   // token input
-  const [token, setToken] = useState<string>('0x0000000000000000000000000000000000000000');
+  const [token, setToken] = useState<string>('');
   const [tokenId, setTokenId] = useState<string>('0');
   const [isErc20, setIsErc20] = useState<boolean>(true);
+  const [tokenMeta, setTokenMeta] = useState<{ name?: string; symbol?: string; decimals?: number } | null>(null);
+  const [tokenSearch, setTokenSearch] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<
+    { label: string; token: string; tokenId?: string; isErc20: boolean; decimals?: number }[]
+  >([]);
+  const [searchBusy, setSearchBusy] = useState(false);
 
   // order form
   const [side, setSide] = useState<Side>(0);
-  const [tokenDecimals, setTokenDecimals] = useState<number>(0);
+  const [tokenDecimals, setTokenDecimals] = useState<number>(0); // will auto-fill for ERC20
   const [qtyHuman, setQtyHuman] = useState<string>('1');
   const [unitPriceJewel, setUnitPriceJewel] = useState<string>('1');
   const [addToBook, setAddToBook] = useState<boolean>(true);
+
+  // Auto-detect ERC20 name/symbol/decimals when token address changes.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      setTokenMeta(null);
+      if (!isErc20) return;
+      if (!publicClient) return;
+      if (!token || !token.startsWith('0x') || token.length !== 42) return;
+
+      const erc20Abi = [
+        {
+          type: 'function',
+          name: 'name',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ name: '', type: 'string' }],
+        },
+        {
+          type: 'function',
+          name: 'symbol',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ name: '', type: 'string' }],
+        },
+        {
+          type: 'function',
+          name: 'decimals',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ name: '', type: 'uint8' }],
+        },
+      ] as const;
+
+      try {
+        const [name, symbol, decimals] = await Promise.all([
+          publicClient.readContract({ address: token as any, abi: erc20Abi, functionName: 'name' }),
+          publicClient.readContract({ address: token as any, abi: erc20Abi, functionName: 'symbol' }),
+          publicClient.readContract({ address: token as any, abi: erc20Abi, functionName: 'decimals' }),
+        ]);
+
+        if (cancelled) return;
+        setTokenMeta({ name: name as any, symbol: symbol as any, decimals: Number(decimals) });
+        setTokenDecimals(Number(decimals));
+      } catch {
+        // not an ERC20, or RPC fail; leave manual entry.
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isErc20, publicClient]);
+
+  async function onConnect() {
+    setConnectNote('');
+    try {
+      const c = connectors?.find((x) => x.type === 'injected') ?? connectors?.[0];
+      if (!c) {
+        setConnectNote('No wallet connector found. Install MetaMask (or enable an injected wallet).');
+        return;
+      }
+      connect({ connector: c });
+    } catch (e: any) {
+      setConnectNote(e?.message || 'Connect failed');
+    }
+  }
+
+  async function runTokenSearch() {
+    const q = tokenSearch.trim();
+    if (!q) return;
+    setSearchBusy(true);
+    setSearchResults([]);
+
+    try {
+      // Community GraphQL API used elsewhere in your workspace.
+      // We keep it generic: search by substring across token symbols/names.
+      const endpoint = 'https://api.defikingdoms.com/graphql';
+      const query = `query BazaarTokenSearch($q: String!) {
+        bazaarTokens(search: $q) {
+          token
+          tokenId
+          isERC20
+          symbol
+          name
+          decimals
+        }
+      }`;
+
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query, variables: { q } }),
+      });
+      const j = await r.json();
+      const items = (j?.data?.bazaarTokens || []) as any[];
+
+      setSearchResults(
+        items.slice(0, 20).map((it) => ({
+          label: `${it.symbol || ''}${it.name ? ' — ' + it.name : ''}`.trim() || it.token,
+          token: it.token,
+          tokenId: String(it.tokenId ?? '0'),
+          isErc20: !!it.isERC20,
+          decimals: it.decimals != null ? Number(it.decimals) : undefined,
+        }))
+      );
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchBusy(false);
+    }
+  }
 
   const qtyWei = useMemo(() => {
     try {
@@ -176,7 +298,7 @@ export default function Home() {
             <option value={metis.id}>Metis</option>
           </select>
           {!isConnected ? (
-            <button className="btn primary" onClick={() => connect({ connector: connectors[0] })}>
+            <button className="btn primary" onClick={onConnect}>
               Connect Wallet
             </button>
           ) : (
@@ -189,13 +311,66 @@ export default function Home() {
 
       {connectStatus === 'pending' && <p className="muted">Connecting…</p>}
       {connectError && <p className="muted">{connectError.message}</p>}
+      {connectNote && <p className="muted">{connectNote}</p>}
 
       <div className="grid" style={{ marginTop: 14 }}>
         <div className="card">
           <div className="h2">MARKET</div>
+
+          <div className="field">
+            <label>Find token / item by name (fills address)</label>
+            <div className="row">
+              <input
+                style={{ flex: 1 }}
+                value={tokenSearch}
+                onChange={(e) => setTokenSearch(e.target.value)}
+                placeholder="e.g. CRYSTAL, Gold, Might Stone…"
+              />
+              <button className="btn" disabled={searchBusy} onClick={runTokenSearch}>
+                {searchBusy ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="card" style={{ marginTop: 8, padding: 10 }}>
+                {searchResults.map((r) => (
+                  <div
+                    key={r.token + ':' + (r.tokenId ?? '0') + ':' + (r.isErc20 ? '20' : '1155')}
+                    className="row"
+                    style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}
+                  >
+                    <div>
+                      <div>{r.label}</div>
+                      <div className="muted code">
+                        {r.token}
+                        {!r.isErc20 ? ` • tokenId ${r.tokenId}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        setToken(r.token);
+                        setIsErc20(r.isErc20);
+                        setTokenId(r.tokenId ?? '0');
+                        if (r.decimals != null) setTokenDecimals(r.decimals);
+                      }}
+                    >
+                      Use
+                    </button>
+                  </div>
+                ))}
+                <div className="muted">If this list is empty, the API endpoint may differ; we’ll swap to a different query.</div>
+              </div>
+            )}
+          </div>
+
           <div className="field">
             <label>Token address</label>
             <input value={token} onChange={(e) => setToken(e.target.value.trim())} placeholder="0x..." />
+            {tokenMeta?.name && (
+              <div className="muted">
+                Detected ERC20: <b>{tokenMeta.name}</b> ({tokenMeta.symbol}) • decimals {tokenMeta.decimals}
+              </div>
+            )}
           </div>
           <div className="row">
             <div className="field" style={{ flex: 1 }}>
