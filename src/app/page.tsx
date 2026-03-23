@@ -12,10 +12,12 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
   usePublicClient,
+  useReadContracts,
 } from 'wagmi';
 
 import { BAZAAR, Side, sideLabel } from '../lib/bazaar';
 import { dfkChain, metis } from '../lib/chains';
+import { DFK_INVENTORY_ITEMS } from '../lib/inventoryItems';
 
 function addrForChain(chainId: number) {
   return chainId === metis.id ? BAZAAR.metis.address : BAZAAR.dfkChain.address;
@@ -206,14 +208,85 @@ export default function Home() {
     functionName: 'PRICE_FACTOR',
   });
 
-  const { data: bestOrders } = useReadContract({
+  const { data: bestBuy } = useReadContract({
     address: bazaarAddress,
     abi: BAZAAR.abi,
-    functionName: 'getBestOrders',
-    args: [token, BigInt(tokenId || '0'), 0], // function takes (_token,_tokenId) and returns both buy/sell. Some ABIs show only 2 args.
-    // If this call fails due to ABI mismatch, use the separate getBestOrder(side) calls.
+    functionName: 'getBestOrder',
+    args: [token, BigInt(tokenId || '0'), 0],
     query: { enabled: token.startsWith('0x') && token.length === 42 },
   } as any);
+
+  const { data: bestSell } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getBestOrder',
+    args: [token, BigInt(tokenId || '0'), 1],
+    query: { enabled: token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  // Depth (top price levels)
+  const { data: buyPrices } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getPrices',
+    args: [token, BigInt(tokenId || '0'), 0],
+    query: { enabled: token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  const { data: sellPrices } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getPrices',
+    args: [token, BigInt(tokenId || '0'), 1],
+    query: { enabled: token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  const topBuyPrices = useMemo(() => {
+    const arr = Array.isArray(buyPrices) ? (buyPrices as any[]).map(asBigint) : [];
+    return arr.slice(0, 8);
+  }, [buyPrices]);
+
+  const topSellPrices = useMemo(() => {
+    const arr = Array.isArray(sellPrices) ? (sellPrices as any[]).map(asBigint) : [];
+    return arr.slice(0, 8);
+  }, [sellPrices]);
+
+  const { data: depthBuy } = useReadContracts({
+    contracts: topBuyPrices.map((p) => ({
+      address: bazaarAddress,
+      abi: BAZAAR.abi,
+      functionName: 'getOrderIdsAtPrice',
+      args: [token, BigInt(tokenId || '0'), 0, p],
+    })),
+    query: { enabled: topBuyPrices.length > 0 },
+  } as any);
+
+  const { data: depthSell } = useReadContracts({
+    contracts: topSellPrices.map((p) => ({
+      address: bazaarAddress,
+      abi: BAZAAR.abi,
+      functionName: 'getOrderIdsAtPrice',
+      args: [token, BigInt(tokenId || '0'), 1, p],
+    })),
+    query: { enabled: topSellPrices.length > 0 },
+  } as any);
+
+  function sumQtyAtPrice(res: any): bigint {
+    // ABI: returns (orderIds[], quantities[]) — we sum quantities.
+    try {
+      const quantities = res?.result?.[1] ?? res?.[1] ?? [];
+      if (!Array.isArray(quantities)) return 0n;
+      return quantities.reduce((acc: bigint, x: any) => acc + asBigint(x), 0n);
+    } catch {
+      return 0n;
+    }
+  }
+
+  function formatUnitPriceJewel(priceStored: bigint): string {
+    // Stored: unitPriceWei * 1e12
+    const unitWei = priceStored / 1_000_000_000_000n;
+    return formatUnits(unitWei, 18);
+  }
 
   const { data: myOrderIds } = useReadContract({
     address: bazaarAddress,
@@ -331,6 +404,29 @@ export default function Home() {
           <div className="h2">MARKET</div>
 
           <div className="field">
+            <label>Inventory items (DFK Chain)</label>
+            <select
+              value={token || ''}
+              onChange={(e) => {
+                const addr = e.target.value;
+                const it = DFK_INVENTORY_ITEMS.find((x) => x.address.toLowerCase() === addr.toLowerCase());
+                setToken(addr);
+                setIsErc20(true);
+                setTokenId('0');
+                if (it) setTokenDecimals(it.decimals);
+              }}
+            >
+              <option value="">— select —</option>
+              {DFK_INVENTORY_ITEMS.map((it) => (
+                <option key={it.address} value={it.address}>
+                  {it.name} ({it.symbol})
+                </option>
+              ))}
+            </select>
+            <div className="muted">These are ERC20 inventory items (0 decimals) from DFK docs.</div>
+          </div>
+
+          <div className="field">
             <label>Find token / item by name (fills address)</label>
             <div className="row">
               <input
@@ -410,11 +506,78 @@ export default function Home() {
           </div>
 
           <div className="field">
-            <label>Best orders (raw)</label>
+            <label>Best bid / ask</label>
             <div className="code" style={{ whiteSpace: 'pre-wrap' }}>
-              {bestOrders ? JSON.stringify(bestOrders, null, 2) : '—'}
+              {(bestBuy as any)?.price
+                ? `Best bid: ${formatUnitPriceJewel(asBigint((bestBuy as any).price))} JEWEL`
+                : 'Best bid: —'}
+              {'\n'}
+              {(bestSell as any)?.price
+                ? `Best ask: ${formatUnitPriceJewel(asBigint((bestSell as any).price))} JEWEL`
+                : 'Best ask: —'}
             </div>
-            <div className="muted">If this looks empty due to ABI mismatch, we’ll swap to getBestOrder(side) next.</div>
+          </div>
+
+          <div className="field">
+            <label>Orderbook depth (top levels)</label>
+            <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="card">
+                <div className="h2">BUY</div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Price (JEWEL)</th>
+                      <th>Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topBuyPrices.map((p, i) => {
+                      const q = depthBuy?.[i] ? sumQtyAtPrice(depthBuy[i]) : 0n;
+                      return (
+                        <tr key={String(p)}>
+                          <td className="code">{formatUnitPriceJewel(p)}</td>
+                          <td className="code">{String(q)}</td>
+                        </tr>
+                      );
+                    })}
+                    {topBuyPrices.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="muted">—</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="card">
+                <div className="h2">SELL</div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Price (JEWEL)</th>
+                      <th>Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topSellPrices.map((p, i) => {
+                      const q = depthSell?.[i] ? sumQtyAtPrice(depthSell[i]) : 0n;
+                      return (
+                        <tr key={String(p)}>
+                          <td className="code">{formatUnitPriceJewel(p)}</td>
+                          <td className="code">{String(q)}</td>
+                        </tr>
+                      );
+                    })}
+                    {topSellPrices.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="muted">—</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="muted">Qty is in token base units (inventory items = 0 decimals). Prices are unit price in JEWEL.</div>
           </div>
         </div>
 
