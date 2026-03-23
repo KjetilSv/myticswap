@@ -400,7 +400,7 @@ export default function Home() {
     <div className="container">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div className="h1">DFK Bazaar UI</div>
+          <div className="h1">Mytic Swap</div>
           <div className="muted">Buy / sell and manage Bazaar orders (ERC-20 & ERC-1155). Static Next export → Cloudflare Pages.</div>
           {isConnected && jewelBalance && (
             <div className="muted">

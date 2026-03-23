@@ -4,8 +4,8 @@
 .row{display:flex;gap:12px;flex-wrap:wrap}
 .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:14px}
 .muted{color:rgba(233,238,245,0.65)}
-.h1{font-size:20px;font-weight:700}
-.h2{font-size:14px;font-weight:700;letter-spacing:.08em}
+.h1{font-size:20px;font-weight:700;color:#c084fc}
+.h2{font-size:14px;font-weight:700;letter-spacing:.08em;color:#c084fc}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
 
 .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}

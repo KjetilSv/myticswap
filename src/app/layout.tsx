@@ -3,7 +3,7 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'DFK Bazaar UI',
+  title: 'Mytic Swap',
   description: 'Orderbook UI for The Bazaar (DFK) — buy/sell and manage orders.',
 };
 
