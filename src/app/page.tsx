@@ -115,11 +115,15 @@ export default function Home() {
   async function onConnect() {
     setConnectNote('');
     try {
-      const c = connectors?.find((x) => x.type === 'injected') ?? connectors?.[0];
+      const mm = connectors?.find((x: any) => x?.id === 'metaMask');
+      const injected = connectors?.find((x: any) => x?.type === 'injected' || x?.id === 'injected');
+      const c = mm ?? injected ?? connectors?.[0];
+
       if (!c) {
-        setConnectNote('No wallet connector found. Install MetaMask (or enable an injected wallet).');
+        setConnectNote('No wallet connector found. Install MetaMask or Rabby (injected wallet).');
         return;
       }
+
       connect({ connector: c });
     } catch (e: any) {
       setConnectNote(e?.message || 'Connect failed');
@@ -312,6 +316,13 @@ export default function Home() {
       {connectStatus === 'pending' && <p className="muted">Connecting…</p>}
       {connectError && <p className="muted">{connectError.message}</p>}
       {connectNote && <p className="muted">{connectNote}</p>}
+
+      {!isConnected && (
+        <p className="muted">
+          Debug: connectors = {connectors?.map((c: any) => `${c.id}:${c.type}`).join(', ') || 'none'}
+          {' • '}window.ethereum = {typeof (globalThis as any).ethereum}
+        </p>
+      )}
 
       <div className="grid" style={{ marginTop: 14 }}>
         <div className="card">
