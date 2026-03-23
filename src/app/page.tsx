@@ -1,66 +1,339 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
+
+import { useMemo, useState } from 'react';
+import { formatUnits, parseUnits } from 'viem';
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useChainId,
+  useSwitchChain,
+  useReadContract,
+  useReadContracts,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from 'wagmi';
+
+import { BAZAAR, Side, sideLabel } from '../lib/bazaar';
+import { dfkChain, metis } from '../lib/chains';
+
+function addrForChain(chainId: number) {
+  return chainId === metis.id ? BAZAAR.metis.address : BAZAAR.dfkChain.address;
+}
+
+function asBigint(v: unknown): bigint {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(v);
+  if (typeof v === 'string') return BigInt(v);
+  return 0n;
+}
 
 export default function Home() {
+  const { address, isConnected } = useAccount();
+  const { connect, connectors, status: connectStatus, error: connectError } = useConnect();
+  const { disconnect } = useDisconnect();
+  const chainId = useChainId();
+  const { switchChain } = useSwitchChain();
+
+  const bazaarAddress = addrForChain(chainId);
+
+  // token input
+  const [token, setToken] = useState<string>('0x0000000000000000000000000000000000000000');
+  const [tokenId, setTokenId] = useState<string>('0');
+  const [isErc20, setIsErc20] = useState<boolean>(true);
+
+  // order form
+  const [side, setSide] = useState<Side>(0);
+  const [tokenDecimals, setTokenDecimals] = useState<number>(0);
+  const [qtyHuman, setQtyHuman] = useState<string>('1');
+  const [unitPriceJewel, setUnitPriceJewel] = useState<string>('1');
+  const [addToBook, setAddToBook] = useState<boolean>(true);
+
+  const qtyWei = useMemo(() => {
+    try {
+      return parseUnits(qtyHuman || '0', tokenDecimals);
+    } catch {
+      return 0n;
+    }
+  }, [qtyHuman, tokenDecimals]);
+
+  const unitPriceWei = useMemo(() => {
+    try {
+      return parseUnits(unitPriceJewel || '0', 18);
+    } catch {
+      return 0n;
+    }
+  }, [unitPriceJewel]);
+
+  const totalPriceWei = useMemo(() => {
+    // docs: totalPrice = unitPriceWei * quantityWei / 10^tokenDecimals
+    const denom = 10n ** BigInt(tokenDecimals);
+    if (denom === 0n) return 0n;
+    return (unitPriceWei * qtyWei) / denom;
+  }, [unitPriceWei, qtyWei, tokenDecimals]);
+
+  const { data: priceFactor } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'PRICE_FACTOR',
+  });
+
+  const { data: bestOrders } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getBestOrders',
+    args: [token, BigInt(tokenId || '0'), 0], // function takes (_token,_tokenId) and returns both buy/sell. Some ABIs show only 2 args.
+    // If this call fails due to ABI mismatch, use the separate getBestOrder(side) calls.
+    query: { enabled: token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  const { data: myOrderIds } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getUserOpenOrderIds',
+    args: [address],
+    query: { enabled: !!address },
+  });
+
+  const idsArr: bigint[] = useMemo(() => {
+    if (!myOrderIds) return [];
+    try {
+      return (myOrderIds as any[]).map(asBigint);
+    } catch {
+      return [];
+    }
+  }, [myOrderIds]);
+
+  const { data: myOrders } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'getOrders',
+    args: [idsArr],
+    query: { enabled: idsArr.length > 0 },
+  } as any);
+
+  // fee preview
+  const { data: feeWei } = useReadContract({
+    address: bazaarAddress,
+    abi: BAZAAR.abi,
+    functionName: 'calcFee',
+    args: [token, side, qtyWei],
+    query: { enabled: token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  const txValue = useMemo(() => {
+    // docs say buy orders on DFK chain must send totalPrice + fee as msg.value.
+    if (side !== 0) return 0n;
+    return totalPriceWei + asBigint(feeWei);
+  }, [side, totalPriceWei, feeWei]);
+
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
+  const { data: receipt, isLoading: waiting } = useWaitForTransactionReceipt({ hash: txHash });
+
+  function onMakeOrder() {
+    const input = {
+      token,
+      tokenId: BigInt(tokenId || '0'),
+      side,
+      totalPrice: totalPriceWei,
+      quantity: qtyWei,
+      addUnfilledOrderToOrderbook: addToBook,
+      isERC20: isErc20,
+    };
+
+    writeContract({
+      address: bazaarAddress,
+      abi: BAZAAR.abi,
+      functionName: 'makeOrders',
+      args: [[input]],
+      value: txValue,
+    } as any);
+  }
+
+  function onCancel(id: bigint) {
+    writeContract({
+      address: bazaarAddress,
+      abi: BAZAAR.abi,
+      functionName: 'cancelOrders',
+      args: [[id]],
+    } as any);
+  }
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="container">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div className="h1">DFK Bazaar UI</div>
+          <div className="muted">Buy / sell and manage Bazaar orders (ERC-20 & ERC-1155). Static Next export → Cloudflare Pages.</div>
+        </div>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <select
+            className="btn"
+            value={chainId}
+            onChange={(e) => switchChain?.({ chainId: Number(e.target.value) })}
+          >
+            <option value={dfkChain.id}>DFK Chain</option>
+            <option value={metis.id}>Metis</option>
+          </select>
+          {!isConnected ? (
+            <button className="btn primary" onClick={() => connect({ connector: connectors[0] })}>
+              Connect Wallet
+            </button>
+          ) : (
+            <button className="btn" onClick={() => disconnect()}>
+              Disconnect
+            </button>
+          )}
+        </div>
+      </div>
+
+      {connectStatus === 'pending' && <p className="muted">Connecting…</p>}
+      {connectError && <p className="muted">{connectError.message}</p>}
+
+      <div className="grid" style={{ marginTop: 14 }}>
+        <div className="card">
+          <div className="h2">MARKET</div>
+          <div className="field">
+            <label>Token address</label>
+            <input value={token} onChange={(e) => setToken(e.target.value.trim())} placeholder="0x..." />
+          </div>
+          <div className="row">
+            <div className="field" style={{ flex: 1 }}>
+              <label>tokenId (ERC-1155, else 0)</label>
+              <input value={tokenId} onChange={(e) => setTokenId(e.target.value)} />
+            </div>
+            <div className="field" style={{ width: 180 }}>
+              <label>Token type</label>
+              <select value={isErc20 ? 'erc20' : 'erc1155'} onChange={(e) => setIsErc20(e.target.value === 'erc20')}>
+                <option value="erc20">ERC-20</option>
+                <option value="erc1155">ERC-1155</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Contract</label>
+            <div className="code">{bazaarAddress}</div>
+          </div>
+
+          <div className="field">
+            <label>PRICE_FACTOR</label>
+            <div className="code">{priceFactor ? String(priceFactor) : '…'}</div>
+          </div>
+
+          <div className="field">
+            <label>Best orders (raw)</label>
+            <div className="code" style={{ whiteSpace: 'pre-wrap' }}>
+              {bestOrders ? JSON.stringify(bestOrders, null, 2) : '—'}
+            </div>
+            <div className="muted">If this looks empty due to ABI mismatch, we’ll swap to getBestOrder(side) next.</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="h2">MAKE ORDER</div>
+
+          <div className="row">
+            <div className="field" style={{ width: 180 }}>
+              <label>Side</label>
+              <select value={side} onChange={(e) => setSide(Number(e.target.value) as Side)}>
+                <option value={0}>BUY</option>
+                <option value={1}>SELL</option>
+              </select>
+            </div>
+            <div className="field" style={{ width: 180 }}>
+              <label>Token decimals</label>
+              <input
+                type="number"
+                value={tokenDecimals}
+                onChange={(e) => setTokenDecimals(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Quantity (human)</label>
+            <input value={qtyHuman} onChange={(e) => setQtyHuman(e.target.value)} />
+          </div>
+
+          <div className="field">
+            <label>Unit price (JEWEL)</label>
+            <input value={unitPriceJewel} onChange={(e) => setUnitPriceJewel(e.target.value)} />
+          </div>
+
+          <div className="row">
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={addToBook} onChange={(e) => setAddToBook(e.target.checked)} />
+              Add unfilled part to orderbook
+            </label>
+          </div>
+
+          <div className="field">
+            <label>Computed</label>
+            <div className="code">qtyWei: {String(qtyWei)}</div>
+            <div className="code">unitPriceWei: {String(unitPriceWei)}</div>
+            <div className="code">totalPriceWei: {String(totalPriceWei)}</div>
+            <div className="code">feeWei: {feeWei ? String(feeWei) : '…'}</div>
+            <div className="code">tx value: {String(txValue)}</div>
+          </div>
+
+          <button className="btn primary" disabled={!isConnected || isPending} onClick={onMakeOrder}>
+            {isPending ? 'Sending…' : `Make ${sideLabel(side)} order`}
+          </button>
+
+          {writeError && <p className="muted">{writeError.message}</p>}
+          {txHash && <p className="muted">tx: {txHash}</p>}
+          {waiting && <p className="muted">Waiting for confirmation…</p>}
+          {receipt && <p className="muted">Confirmed ✅</p>}
+
+          <p className="muted" style={{ marginTop: 10 }}>
+            Note: SELL orders require token approval to the Bazaar contract. We’ll add an Approve panel next.
           </p>
         </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="card" style={{ gridColumn: '1 / -1' }}>
+          <div className="h2">MY OPEN ORDERS</div>
+          {!isConnected && <p className="muted">Connect a wallet to view your open order IDs.</p>}
+          {isConnected && idsArr.length === 0 && <p className="muted">No open orders.</p>}
+
+          {Array.isArray(myOrders) && (myOrders as any[]).length > 0 && (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Token</th>
+                  <th>tokenId</th>
+                  <th>Side</th>
+                  <th>Price (raw)</th>
+                  <th>Qty (raw)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(myOrders as any[]).map((o) => (
+                  <tr key={String(o.orderId)}>
+                    <td className="code">{String(o.orderId)}</td>
+                    <td className="code">{String(o.token)}</td>
+                    <td className="code">{String(o.tokenId)}</td>
+                    <td>{String(o.side) === '0' ? 'BUY' : 'SELL'}</td>
+                    <td className="code">{String(o.price)}</td>
+                    <td className="code">{String(o.quantity)}</td>
+                    <td>
+                      <button className="btn danger" onClick={() => onCancel(BigInt(o.orderId))}>
+                        Cancel
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-      </main>
+      </div>
+
+      <div className="muted" style={{ marginTop: 14 }}>
+        Bazaar docs: <a href="https://devs.defikingdoms.com/contracts/exchanges/the-bazaar">devs.defikingdoms.com</a>
+      </div>
     </div>
   );
 }
