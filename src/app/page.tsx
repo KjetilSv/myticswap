@@ -32,6 +32,8 @@ export default function Home() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, status: connectStatus, error: connectError } = useConnect();
   const [connectNote, setConnectNote] = useState<string>('');
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -317,8 +319,8 @@ export default function Home() {
       {connectError && <p className="muted">{connectError.message}</p>}
       {connectNote && <p className="muted">{connectNote}</p>}
 
-      {!isConnected && (
-        <p className="muted">
+      {mounted && !isConnected && (
+        <p className="muted" suppressHydrationWarning>
           Debug: connectors = {connectors?.map((c: any) => `${c.id}:${c.type}`).join(', ') || 'none'}
           {' • '}window.ethereum = {typeof (globalThis as any).ethereum}
         </p>
