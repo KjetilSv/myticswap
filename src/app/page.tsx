@@ -13,6 +13,7 @@ import {
   useWaitForTransactionReceipt,
   usePublicClient,
   useReadContracts,
+  useBalance,
 } from 'wagmi';
 
 import { BAZAAR, Side, sideLabel } from '../lib/bazaar';
@@ -45,6 +46,8 @@ export default function Home() {
 
   const bazaarAddress = addrForChain(chainId);
   const publicClient = usePublicClient();
+
+  const { data: jewelBalance } = useBalance({ address, query: { enabled: !!address } });
 
   // token input
   const [token, setToken] = useState<string>('');
@@ -333,8 +336,11 @@ export default function Home() {
 
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
   const { data: receipt, isLoading: waiting } = useWaitForTransactionReceipt({ hash: txHash });
+  const [txNote, setTxNote] = useState<string>('');
 
-  function onMakeOrder() {
+  async function onMakeOrder() {
+    setTxNote('');
+
     const input = {
       token,
       tokenId: BigInt(tokenId || '0'),
@@ -344,6 +350,23 @@ export default function Home() {
       addUnfilledOrderToOrderbook: addToBook,
       isERC20: isErc20,
     };
+
+    // Preflight simulation so we get a revert reason before spending gas.
+    try {
+      if (!publicClient) throw new Error('No RPC client');
+      await publicClient.simulateContract({
+        address: bazaarAddress as any,
+        abi: BAZAAR.abi,
+        functionName: 'makeOrders',
+        args: [[input]],
+        value: txValue,
+        account: address as any,
+      } as any);
+    } catch (e: any) {
+      const msg = e?.shortMessage || e?.cause?.shortMessage || e?.message || 'Simulation failed';
+      setTxNote(`Simulation revert: ${msg}`);
+      return;
+    }
 
     writeContract({
       address: bazaarAddress,
@@ -369,6 +392,12 @@ export default function Home() {
         <div>
           <div className="h1">DFK Bazaar UI</div>
           <div className="muted">Buy / sell and manage Bazaar orders (ERC-20 & ERC-1155). Static Next export → Cloudflare Pages.</div>
+          {isConnected && jewelBalance && (
+            <div className="muted">
+              Balance: {formatUnits((jewelBalance as any).value ?? 0n, (jewelBalance as any).decimals ?? 18)}{' '}
+              {(jewelBalance as any).symbol}
+            </div>
+          )}
         </div>
         <div className="row" style={{ alignItems: 'center' }}>
           <select
@@ -635,6 +664,7 @@ export default function Home() {
             {isPending ? 'Sending…' : `Make ${sideLabel(side)} order`}
           </button>
 
+          {txNote && <p className="muted">{txNote}</p>}
           {writeError && <p className="muted">{writeError.message}</p>}
           {txHash && <p className="muted">tx: {txHash}</p>}
           {waiting && <p className="muted">Waiting for confirmation…</p>}
