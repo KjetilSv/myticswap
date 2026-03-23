@@ -36,6 +36,18 @@ export default function Home() {
   const [connectNote, setConnectNote] = useState<string>('');
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Prevent hydration mismatches: wagmi connectors + injected wallets are only present in the browser.
+  if (!mounted) {
+    return (
+      <div className="container">
+        <div className="card">
+          <div className="h1">DFK Bazaar UI</div>
+          <p className="muted">Loading wallet environment…</p>
+        </div>
+      </div>
+    );
+  }
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
