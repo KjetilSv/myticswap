@@ -320,18 +320,28 @@ export default function Home() {
   } as any);
 
   // fee preview
-  const { data: feeWei } = useReadContract({
+  const { data: feePercent } = useReadContract({
     address: bazaarAddress,
     abi: BAZAAR.abi,
-    functionName: 'calcFee',
-    args: [token, side, qtyWei],
-    query: { enabled: token.startsWith('0x') && token.length === 42 },
+    functionName: 'calcFeePercent',
+    args: [address, token, side],
+    query: { enabled: !!address && token.startsWith('0x') && token.length === 42 },
   } as any);
+
+  const feeWei = useMemo(() => {
+    // feePercent is expressed as decimalPercent * 10000 (docs example: 1500 = 1.5%)
+    // => percent = feePercent / 100000
+    const fp = asBigint(feePercent);
+    if (fp <= 0n) return 0n;
+    // For BUY orders, the fee is in JEWEL and scales with totalPrice.
+    if (side !== 0) return 0n;
+    return (totalPriceWei * fp) / 100_000n;
+  }, [feePercent, totalPriceWei, side]);
 
   const txValue = useMemo(() => {
     // docs say buy orders on DFK chain must send totalPrice + fee as msg.value.
     if (side !== 0) return 0n;
-    return totalPriceWei + asBigint(feeWei);
+    return totalPriceWei + feeWei;
   }, [side, totalPriceWei, feeWei]);
 
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
@@ -656,7 +666,8 @@ export default function Home() {
             <div className="code">qtyWei: {String(qtyWei)}</div>
             <div className="code">unitPriceWei: {String(unitPriceWei)}</div>
             <div className="code">totalPriceWei: {String(totalPriceWei)}</div>
-            <div className="code">feeWei: {feeWei ? String(feeWei) : '…'}</div>
+            <div className="code">feePercent: {feePercent ? String(feePercent) : '…'} (÷100000)</div>
+            <div className="code">feeWei: {String(feeWei)}</div>
             <div className="code">tx value: {String(txValue)}</div>
           </div>
 
