@@ -60,6 +60,9 @@ export default function Home() {
   >([]);
   const [searchBusy, setSearchBusy] = useState(false);
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showComputed, setShowComputed] = useState(false);
+
   // order form
   const [side, setSide] = useState<Side>(0);
   const [tokenDecimals, setTokenDecimals] = useState<number>(0); // will auto-fill for ERC20
@@ -469,7 +472,12 @@ export default function Home() {
 
       <div className="grid" style={{ marginTop: 14 }}>
         <div className="card">
-          <div className="h2">MARKET</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="h2">MARKET</div>
+            <button className="btn" onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? 'Hide advanced' : 'Show advanced'}
+            </button>
+          </div>
 
           <div className="field">
             <label>Inventory items (DFK Chain)</label>
@@ -494,84 +502,88 @@ export default function Home() {
             <div className="muted">These are ERC20 inventory items (0 decimals) from DFK docs.</div>
           </div>
 
-          <div className="field">
-            <label>Find token / item by name (fills address)</label>
-            <div className="row">
-              <input
-                style={{ flex: 1 }}
-                value={tokenSearch}
-                onChange={(e) => setTokenSearch(e.target.value)}
-                placeholder="e.g. CRYSTAL, Gold, Might Stone…"
-              />
-              <button className="btn" disabled={searchBusy} onClick={runTokenSearch}>
-                {searchBusy ? 'Searching…' : 'Search'}
-              </button>
-            </div>
-            {searchResults.length > 0 && (
-              <div className="card" style={{ marginTop: 8, padding: 10 }}>
-                {searchResults.map((r) => (
-                  <div
-                    key={r.token + ':' + (r.tokenId ?? '0') + ':' + (r.isErc20 ? '20' : '1155')}
-                    className="row"
-                    style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}
-                  >
-                    <div>
-                      <div>{r.label}</div>
-                      <div className="muted code">
-                        {r.token}
-                        {!r.isErc20 ? ` • tokenId ${r.tokenId}` : ''}
+          {showAdvanced && (
+            <>
+              <div className="field">
+                <label>Find token / item by name (fills address)</label>
+                <div className="row">
+                  <input
+                    style={{ flex: 1 }}
+                    value={tokenSearch}
+                    onChange={(e) => setTokenSearch(e.target.value)}
+                    placeholder="e.g. CRYSTAL, Gold, Might Stone…"
+                  />
+                  <button className="btn" disabled={searchBusy} onClick={runTokenSearch}>
+                    {searchBusy ? 'Searching…' : 'Search'}
+                  </button>
+                </div>
+                {searchResults.length > 0 && (
+                  <div className="card" style={{ marginTop: 8, padding: 10 }}>
+                    {searchResults.map((r) => (
+                      <div
+                        key={r.token + ':' + (r.tokenId ?? '0') + ':' + (r.isErc20 ? '20' : '1155')}
+                        className="row"
+                        style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}
+                      >
+                        <div>
+                          <div>{r.label}</div>
+                          <div className="muted code">
+                            {r.token}
+                            {!r.isErc20 ? ` • tokenId ${r.tokenId}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            setToken(r.token);
+                            setIsErc20(r.isErc20);
+                            setTokenId(r.tokenId ?? '0');
+                            if (r.decimals != null) setTokenDecimals(r.decimals);
+                          }}
+                        >
+                          Use
+                        </button>
                       </div>
-                    </div>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setToken(r.token);
-                        setIsErc20(r.isErc20);
-                        setTokenId(r.tokenId ?? '0');
-                        if (r.decimals != null) setTokenDecimals(r.decimals);
-                      }}
-                    >
-                      Use
-                    </button>
+                    ))}
+                    <div className="muted">If this list is empty, the API endpoint may differ; we’ll swap to a different query.</div>
                   </div>
-                ))}
-                <div className="muted">If this list is empty, the API endpoint may differ; we’ll swap to a different query.</div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="field">
-            <label>Token address</label>
-            <input value={token} onChange={(e) => setToken(e.target.value.trim())} placeholder="0x..." />
-            {tokenMeta?.name && (
-              <div className="muted">
-                Detected ERC20: <b>{tokenMeta.name}</b> ({tokenMeta.symbol}) • decimals {tokenMeta.decimals}
+              <div className="field">
+                <label>Token address</label>
+                <input value={token} onChange={(e) => setToken(e.target.value.trim())} placeholder="0x..." />
+                {tokenMeta?.name && (
+                  <div className="muted">
+                    Detected ERC20: <b>{tokenMeta.name}</b> ({tokenMeta.symbol}) • decimals {tokenMeta.decimals}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="row">
-            <div className="field" style={{ flex: 1 }}>
-              <label>tokenId (ERC-1155, else 0)</label>
-              <input value={tokenId} onChange={(e) => setTokenId(e.target.value)} />
-            </div>
-            <div className="field" style={{ width: 180 }}>
-              <label>Token type</label>
-              <select value={isErc20 ? 'erc20' : 'erc1155'} onChange={(e) => setIsErc20(e.target.value === 'erc20')}>
-                <option value="erc20">ERC-20</option>
-                <option value="erc1155">ERC-1155</option>
-              </select>
-            </div>
-          </div>
+              <div className="row">
+                <div className="field" style={{ flex: 1 }}>
+                  <label>tokenId (ERC-1155, else 0)</label>
+                  <input value={tokenId} onChange={(e) => setTokenId(e.target.value)} />
+                </div>
+                <div className="field" style={{ width: 180 }}>
+                  <label>Token type</label>
+                  <select value={isErc20 ? 'erc20' : 'erc1155'} onChange={(e) => setIsErc20(e.target.value === 'erc20')}>
+                    <option value="erc20">ERC-20</option>
+                    <option value="erc1155">ERC-1155</option>
+                  </select>
+                </div>
+              </div>
 
-          <div className="field">
-            <label>Contract</label>
-            <div className="code">{bazaarAddress}</div>
-          </div>
+              <div className="field">
+                <label>Contract</label>
+                <div className="code">{bazaarAddress}</div>
+              </div>
 
-          <div className="field">
-            <label>PRICE_FACTOR</label>
-            <div className="code">{priceFactor ? String(priceFactor) : '…'}</div>
-          </div>
+              <div className="field">
+                <label>PRICE_FACTOR</label>
+                <div className="code">{priceFactor ? String(priceFactor) : '…'}</div>
+              </div>
+            </>
+          )}
 
           <div className="field">
             <label>Best bid / ask</label>
@@ -660,7 +672,16 @@ export default function Home() {
                 <option value={1}>SELL</option>
               </select>
             </div>
-            <div className="field" style={{ width: 180 }}>
+
+            <div className="field" style={{ flex: 1 }}>
+              <label>Quantity in order</label>
+              <div className="code">{String(qtyWei)} (base units)</div>
+              <div className="muted">Inventory items use 0 decimals.</div>
+            </div>
+          </div>
+
+          {showAdvanced && (
+            <div className="field">
               <label>Token decimals</label>
               <input
                 type="number"
@@ -668,7 +689,7 @@ export default function Home() {
                 onChange={(e) => setTokenDecimals(Number(e.target.value))}
               />
             </div>
-          </div>
+          )}
 
           <div className="field">
             <label>Quantity (human)</label>
@@ -687,15 +708,23 @@ export default function Home() {
             </label>
           </div>
 
-          <div className="field">
-            <label>Computed</label>
-            <div className="code">qtyWei: {String(qtyWei)}</div>
-            <div className="code">unitPriceWei: {String(unitPriceWei)}</div>
-            <div className="code">totalPriceWei: {String(totalPriceWei)}</div>
-            <div className="code">feePercent: {feePercent ? String(feePercent) : '…'} (÷100000)</div>
-            <div className="code">feeWei: {String(feeWei)}</div>
-            <div className="code">tx value: {String(txValue)}</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+            <div className="h2">COMPUTED</div>
+            <button className="btn" onClick={() => setShowComputed((v) => !v)}>
+              {showComputed ? 'Hide computed' : 'Show computed'}
+            </button>
           </div>
+
+          {showComputed && (
+            <div className="card" style={{ marginTop: 10 }}>
+              <div className="code">qtyWei: {String(qtyWei)}</div>
+              <div className="code">unitPriceWei: {String(unitPriceWei)}</div>
+              <div className="code">totalPriceWei: {String(totalPriceWei)}</div>
+              <div className="code">feePercent: {feePercent ? String(feePercent) : '…'} (÷100000)</div>
+              <div className="code">feeWei: {String(feeWei)}</div>
+              <div className="code">tx value: {String(txValue)}</div>
+            </div>
+          )}
 
           <button className="btn primary" disabled={!isConnected || isPending} onClick={onMakeOrder}>
             {isPending ? 'Sending…' : `Make ${sideLabel(side)} order`}
