@@ -37,17 +37,8 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Prevent hydration mismatches: wagmi connectors + injected wallets are only present in the browser.
-  if (!mounted) {
-    return (
-      <div className="container">
-        <div className="card">
-          <div className="h1">DFK Bazaar UI</div>
-          <p className="muted">Loading wallet environment…</p>
-        </div>
-      </div>
-    );
-  }
+  // Prevent hydration mismatches: we keep rendering stable markup until mounted,
+  // but we must NOT early-return before all hooks have run (React hook rules).
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
