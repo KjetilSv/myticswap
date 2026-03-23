@@ -474,9 +474,6 @@ export default function Home() {
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="h2">MARKET</div>
-            <button className="btn" onClick={() => setShowAdvanced((v) => !v)}>
-              {showAdvanced ? 'Hide advanced' : 'Show advanced'}
-            </button>
           </div>
 
           <div className="field">
@@ -585,17 +582,11 @@ export default function Home() {
             </>
           )}
 
-          <div className="field">
-            <label>Best bid / ask</label>
-            <div className="code" style={{ whiteSpace: 'pre-wrap' }}>
-              {(bestBuy as any)?.price
-                ? `Best bid: ${formatUnitPriceJewel(asBigint((bestBuy as any).price))} JEWEL`
-                : 'Best bid: —'}
-              {'\n'}
-              {(bestSell as any)?.price
-                ? `Best ask: ${formatUnitPriceJewel(asBigint((bestSell as any).price))} JEWEL`
-                : 'Best ask: —'}
-            </div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+            <div className="muted">&nbsp;</div>
+            <button className="btn" onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? 'Hide advanced' : 'Show advanced'}
+            </button>
           </div>
 
           <div className="field">
@@ -708,13 +699,6 @@ export default function Home() {
             </label>
           </div>
 
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-            <div className="h2">COMPUTED</div>
-            <button className="btn" onClick={() => setShowComputed((v) => !v)}>
-              {showComputed ? 'Hide computed' : 'Show computed'}
-            </button>
-          </div>
-
           {showComputed && (
             <div className="card" style={{ marginTop: 10 }}>
               <div className="code">qtyWei: {String(qtyWei)}</div>
@@ -739,6 +723,13 @@ export default function Home() {
           <p className="muted" style={{ marginTop: 10 }}>
             Note: SELL orders require token approval to the Bazaar contract. We’ll add an Approve panel next.
           </p>
+
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+            <div className="muted">&nbsp;</div>
+            <button className="btn" onClick={() => setShowComputed((v) => !v)}>
+              {showComputed ? 'Hide computed' : 'Show computed'}
+            </button>
+          </div>
         </div>
 
         <div className="card" style={{ gridColumn: '1 / -1' }}>
