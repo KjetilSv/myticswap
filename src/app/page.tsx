@@ -67,6 +67,27 @@ export default function Home() {
   const [unitPriceJewel, setUnitPriceJewel] = useState<string>('1');
   const [addToBook, setAddToBook] = useState<boolean>(true);
 
+  // Selected token balance (ERC20 only for now)
+  const erc20BalanceAbi = [
+    {
+      type: 'function',
+      name: 'balanceOf',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+  ] as const;
+
+  const { data: tokenBalRes } = useReadContract({
+    address: token && token.startsWith('0x') && token.length === 42 ? (token as any) : undefined,
+    abi: erc20BalanceAbi,
+    functionName: 'balanceOf',
+    args: [address],
+    query: { enabled: !!address && isErc20 && token.startsWith('0x') && token.length === 42 },
+  } as any);
+
+  const tokenBalance = useMemo(() => asBigint(tokenBalRes), [tokenBalRes]);
+
   // Auto-detect ERC20 name/symbol/decimals when token address changes.
   useEffect(() => {
     let cancelled = false;
@@ -404,8 +425,13 @@ export default function Home() {
           <div className="muted">Buy / sell and manage Bazaar orders (ERC-20 & ERC-1155). Static Next export → Cloudflare Pages.</div>
           {isConnected && jewelBalance && (
             <div className="muted">
-              Balance: {formatUnits((jewelBalance as any).value ?? 0n, (jewelBalance as any).decimals ?? 18)}{' '}
+              JEWEL: {formatUnits((jewelBalance as any).value ?? 0n, (jewelBalance as any).decimals ?? 18)}{' '}
               {(jewelBalance as any).symbol}
+            </div>
+          )}
+          {isConnected && isErc20 && token && (
+            <div className="muted">
+              {tokenMeta?.symbol || 'Token'}: {formatUnits(tokenBalance, tokenDecimals)}
             </div>
           )}
         </div>
